@@ -6,7 +6,7 @@ from collections import OrderedDict
 import loader
 import torch
 import time
-import cPickle
+import pickle
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import sys
@@ -109,6 +109,10 @@ optparser.add_option(
 optparser.add_option(
     '--name', default='test',
     help='model name'
+)
+optparser.add_option(
+    '--epochs', default='50',
+    help='epochs number'
 )
 optparser.add_option(
     '--char_mode', choices=['CNN', 'LSTM'], default='CNN',
@@ -229,7 +233,7 @@ with open(mapping_file, 'wb') as f:
         'parameters': parameters,
         'word_embeds': word_embeds
     }
-    cPickle.dump(mappings, f)
+    pickle.dump(mappings, f)
 
 print('word_to_id: ', len(word_to_id))
 model = BiLSTM_CRF(vocab_size=len(word_to_id),
@@ -255,8 +259,9 @@ best_dev_F = -1.0
 best_test_F = -1.0
 best_train_F = -1.0
 all_F = [[0, 0, 0]]
-plot_every = 10
-eval_every = 20
+plot_every = 2000
+eval_every = len(train_data)
+epochs = opts.epochs
 count = 0
 vis = visdom.Visdom()
 sys.stdout.flush()
@@ -312,7 +317,7 @@ def evaluating(model, datas, best_F):
     predf = eval_temp + '/pred.' + name
     scoref = eval_temp + '/score.' + name
 
-    with open(predf, 'wb') as f:
+    with open(predf, 'w') as f:
         f.write('\n'.join(prediction))
 
     os.system('%s < %s > %s' % (eval_script, predf, scoref))
@@ -341,7 +346,7 @@ def evaluating(model, datas, best_F):
     return best_F, new_F, save
 
 model.train(True)
-for epoch in range(1, 10001):
+for epoch in range(0, epochs):
     for i, index in enumerate(np.random.permutation(len(train_data))):
         tr = time.time()
         count += 1
@@ -386,7 +391,7 @@ for epoch in range(1, 10001):
             neg_log_likelihood = model.neg_log_likelihood(sentence_in.cuda(), targets.cuda(), chars2_mask.cuda(), caps.cuda(), chars2_length, d)
         else:
             neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars2_mask, caps, chars2_length, d)
-        loss += neg_log_likelihood.data[0] / len(data['words'])
+        loss += neg_log_likelihood.data.item() / len(data['words'])
         neg_log_likelihood.backward()
         torch.nn.utils.clip_grad_norm(model.parameters(), 5.0)
         optimizer.step()
@@ -405,8 +410,9 @@ for epoch in range(1, 10001):
             vis.text(text, win=textwin, opts={'title': textwin})
             loss = 0.0
 
-        if count % (eval_every) == 0 and count > (eval_every * 20) or \
-                count % (eval_every*4) == 0 and count < (eval_every * 20):
+        if count % (eval_every) == 0:
+        # if count % (eval_every) == 0 and count > (eval_every * 20) or \
+        #         count % (eval_every*4) == 0 and count < (eval_every * 20):
             model.train(False)
             best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
             best_dev_F, new_dev_F, save = evaluating(model, dev_data, best_dev_F)
